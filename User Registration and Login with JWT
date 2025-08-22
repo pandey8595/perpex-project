@@ -1,0 +1,113 @@
+///////////////////////////////////////////////////////////////////////////////////////
+# settings.py  (add these settings)
+INSTALLED_APPS = [
+    ...,
+    "rest_framework",
+    "rest_framework_simplejwt",
+    "myapp",   # your app
+]
+
+REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": (
+        "rest_framework_simplejwt.authentication.JWTAuthentication",
+    ),
+}
+
+
+//////////////////////////////////////////////////////////////////////////////////
+
+# models.py
+from django.contrib.auth.models import AbstractUser
+from django.db import models
+
+class User(AbstractUser):
+    ROLE_CHOICES = [
+        ("Admin", "Admin"),
+        ("Manager", "Manager"),
+        ("Cashier", "Cashier"),
+        ("Waiter", "Waiter"),
+    ]
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default="Waiter")
+
+    def __str__(self):
+        return f"{self.username} ({self.role})"
+
+////////////////////////////////////////////////////////////////////////////////
+
+
+# serializers.py
+from rest_framework import serializers
+from .models import User
+
+class RegisterSerializer(serializers.ModelSerializer):
+    password = serializers.CharField(write_only=True)
+
+    class Meta:
+        model = User
+        fields = ["username", "password", "role"]
+
+    def create(self, validated_data):
+        user = User(
+            username=validated_data["username"],
+            role=validated_data.get("role", "Waiter")
+        )
+        user.set_password(validated_data["password"])
+        user.save()
+        return user
+
+////////////////////////////////////////////////////////////////////////////////
+
+# views.py
+from rest_framework import generics
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from .models import User
+from .serializers import RegisterSerializer
+
+# Registration API
+class RegisterView(generics.CreateAPIView):
+    queryset = User.objects.all()
+    serializer_class = RegisterSerializer
+    permission_classes = [AllowAny]
+
+# Example protected API
+from rest_framework.views import APIView
+from rest_framework.response import Response
+
+class ProtectedView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        return Response({"message": f"Hello {request.user.username}, you are logged in!"})
+
+/////////////////////////////////////////////////////////////////////////////////////////////
+
+# urls.py
+from django.urls import path
+from rest_framework_simplejwt.views import (
+    TokenObtainPairView,
+    TokenRefreshView,
+)
+from .views import RegisterView, ProtectedView
+
+urlpatterns = [
+    path("api/register/", RegisterView.as_view(), name="register"),
+    path("api/login/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
+    path("api/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
+    path("api/protected/", ProtectedView.as_view(), name="protected"),
+]
+
+////////////////////////////////////////////////////////////////////////////////////////////////
+
+{"username": "cashier1", "password": "1234", "role": "Cashier"}
+{"username": "cashier1", "role": "Cashier"}
+{"username": "cashier1", "password": "1234"}
+Authorization: Bearer jwt-access-token
+{"message": "Hello cashier1, you are logged in!"}
+
+
+
+Staff must register + login to get JWT tokens.
+
+APIs like orders and payments will require IsAuthenticated.
+
+Tokens can be refreshed with /api/refresh/.
