@@ -1,1 +1,162 @@
+# models.py
+from django.contrib.auth.models import AbstractUser
+from django.db import models
 
+class User(AbstractUser):
+    ROLE_CHOICES = [
+        ("Admin", "Admin"),
+        ("Manager", "Manager"),
+        ("Cashier", "Cashier"),
+        ("Waiter", "Waiter"),
+    ]
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default="Waiter")
+
+    def __str__(self):
+        return f"{self.username} - {self.role}"
+
+
+class Menu(models.Model):
+    name = models.CharField(max_length=100)
+
+    def __str__(self):
+        return self.name
+
+
+class Order(models.Model):
+    item = models.ForeignKey(Menu, on_delete=models.CASCADE)
+    created_by = models.ForeignKey(User, on_delete=models.CASCADE)
+
+    def __str__(self):
+        return f"Order: {self.item} by {self.created_by}"
+
+
+class Payment(models.Model):
+    order = models.OneToOneField(Order, on_delete=models.CASCADE)
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    processed_by = models.ForeignKey(User, on_delete=models.CASCADE)
+
+    def __str__(self):
+        return f"Payment for {self.order} - {self.amount}"
+
+
+
+
+/////////////////////////////////////////////////////////////////////////////////
+
+
+# permissions.py
+from rest_framework.permissions import BasePermission
+
+class IsManagerOrAdmin(BasePermission):
+    def has_permission(self, request, view):
+        return request.user.is_authenticated and request.user.role in ["Manager", "Admin"]
+
+class IsCashier(BasePermission):
+    def has_permission(self, request, view):
+        return request.user.is_authenticated and request.user.role == "Cashier"
+
+class IsWaiter(BasePermission):
+    def has_permission(self, request, view):
+        return request.user.is_authenticated and request.user.role == "Waiter"
+
+
+//////////////////////////////////////////////////////////////////////////////////////
+
+
+# serializers.py
+from rest_framework import serializers
+from .models import Menu, Order, Payment
+
+class MenuSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Menu
+        fields = "__all__"
+
+class OrderSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Order
+        fields = "__all__"
+
+class PaymentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Payment
+        fields = "__all__"
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+# views.py
+from rest_framework import viewsets, permissions
+from .models import Menu, Order, Payment
+from .serializers import MenuSerializer, OrderSerializer, PaymentSerializer
+from .permissions import IsManagerOrAdmin, IsWaiter, IsCashier
+
+class MenuViewSet(viewsets.ModelViewSet):
+    queryset = Menu.objects.all()
+    serializer_class = MenuSerializer
+
+    def get_permissions(self):
+        if self.action in ["create", "update", "partial_update", "destroy"]:
+            return [IsManagerOrAdmin()]
+        return [permissions.IsAuthenticated()]
+
+
+class OrderViewSet(viewsets.ModelViewSet):
+    queryset = Order.objects.all()
+    serializer_class = OrderSerializer
+
+    def get_permissions(self):
+        if self.action == "create":
+            return [IsWaiter()]
+        return [permissions.IsAuthenticated()]
+
+
+class PaymentViewSet(viewsets.ModelViewSet):
+    queryset = Payment.objects.all()
+    serializer_class = PaymentSerializer
+
+    def get_permissions(self):
+        if self.action == "create":
+            return [IsCashier()]
+        return [permissions.IsAuthenticated()]
+/////////////////////////////////////////////////////////////////////////////////
+
+
+
+
+
+
+
+# urls.py
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
+from .views import MenuViewSet, OrderViewSet, PaymentViewSet
+
+router = DefaultRouter()
+router.register("menu", MenuViewSet)
+router.register("orders", OrderViewSet)
+router.register("payments", PaymentViewSet)
+
+urlpatterns = [
+    path("api/", include(router.urls)),
+]
+
+
+///////////////////////////////////////////////////////////////////////////////
+
+
+
+
+
+
+
+
+
+
+Manager/Admin → Can add/update/delete menu items.
+
+Waiter → Can only create orders.
+
+Cashier → Can only process payments.
+
+Everyone authenticated → Can view menu/orders/payments.
